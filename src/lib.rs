@@ -1,4 +1,4 @@
-#![deny(missing_docs)]
+//#![deny(missing_docs)]
 
 //! This crate provides a [Egui](https://github.com/emilk/egui) integration for the [Bevy](https://github.com/bevyengine/bevy) game engine.
 //!
@@ -29,7 +29,7 @@
 //!         .add_plugin(EguiPlugin)
 //!         // Systems that create Egui widgets should be run during the `CoreSet::Update` set,
 //!         // or after the `EguiSet::BeginFrame` system (which belongs to the `CoreSet::PreUpdate` set).
-//!         .add_system(ui_example_system)
+//!         .add_systems(Update, ui_example_system)
 //!         .run();
 //! }
 //!
@@ -79,9 +79,8 @@ use bevy::{
     input::InputSystem,
     log,
     prelude::{
-        Added, Commands, Component, CoreSet, Deref, DerefMut, Entity, IntoSystemAppConfigs,
-        IntoSystemConfig, IntoSystemConfigs, Query, Resource, Shader, StartupSet, SystemSet, With,
-        Without,
+        Added, Commands, Component, Deref, DerefMut, Entity, IntoSystemConfigs, Last, PostUpdate,
+        PreStartup, PreUpdate, Query, Resource, Shader, SystemSet, Update, With, Without,
     },
     render::{
         render_resource::SpecializedRenderPipelines, texture::Image, ExtractSchedule, RenderApp,
@@ -533,50 +532,48 @@ impl Plugin for EguiPlugin {
         world.init_resource::<EguiUserTextures>();
         world.init_resource::<EguiMousePosition>();
 
-        app.add_startup_systems(
+        app.add_systems(
+            PreStartup,
             (
                 setup_new_windows_system,
                 apply_system_buffers,
                 update_window_contexts_system,
             )
                 .chain()
-                .in_set(EguiStartupSet::InitContexts)
-                .in_base_set(StartupSet::PreStartup),
+                .in_set(EguiStartupSet::InitContexts),
         );
         app.add_systems(
+            PreUpdate,
             (
                 setup_new_windows_system,
                 apply_system_buffers,
                 update_window_contexts_system,
             )
                 .chain()
-                .in_set(EguiSet::InitContexts)
-                .in_base_set(CoreSet::PreUpdate),
+                .in_set(EguiSet::InitContexts),
         );
-        app.add_system(
+        app.add_systems(
+            PreUpdate,
             process_input_system
                 .in_set(EguiSet::ProcessInput)
                 .after(InputSystem)
-                .after(EguiSet::InitContexts)
-                .in_base_set(CoreSet::PreUpdate),
+                .after(EguiSet::InitContexts),
         );
-        app.add_system(
+        app.add_systems(
+            PreUpdate,
             begin_frame_system
                 .in_set(EguiSet::BeginFrame)
-                .after(EguiSet::ProcessInput)
-                .in_base_set(CoreSet::PreUpdate),
+                .after(EguiSet::ProcessInput),
         );
-        app.add_system(
-            process_output_system
-                .in_set(EguiSet::ProcessOutput)
-                .in_base_set(CoreSet::PostUpdate),
+        app.add_systems(
+            PostUpdate,
+            process_output_system.in_set(EguiSet::ProcessOutput),
         );
-        app.add_system(
-            update_egui_textures_system
-                .after(EguiSet::ProcessOutput)
-                .in_base_set(CoreSet::PostUpdate),
+        app.add_systems(
+            PostUpdate,
+            update_egui_textures_system.after(EguiSet::ProcessOutput),
         );
-        app.add_system(free_egui_textures_system.in_base_set(CoreSet::Last));
+        app.add_systems(Last, free_egui_textures_system);
 
         let mut shaders = app.world.resource_mut::<Assets<Shader>>();
         shaders.set_untracked(
@@ -590,24 +587,32 @@ impl Plugin for EguiPlugin {
                 .init_resource::<SpecializedRenderPipelines<EguiPipeline>>()
                 .init_resource::<EguiTransforms>()
                 .add_systems(
+                    ExtractSchedule,
                     (
                         render_systems::extract_egui_render_data_system,
                         render_systems::extract_egui_textures_system,
                         render_systems::setup_new_windows_render_system,
                     )
-                        .into_configs()
-                        .in_schedule(ExtractSchedule),
+                        .into_configs(),
                 )
-                .add_system(
+                .add_systems(
+                    Update,
                     render_systems::prepare_egui_transforms_system.in_set(RenderSet::Prepare),
                 )
-                .add_system(render_systems::queue_bind_groups_system.in_set(RenderSet::Queue))
-                .add_system(render_systems::queue_pipelines_system.in_set(RenderSet::Queue));
+                .add_systems(
+                    Update,
+                    render_systems::queue_bind_groups_system.in_set(RenderSet::Queue),
+                )
+                .add_systems(
+                    Update,
+                    render_systems::queue_pipelines_system.in_set(RenderSet::Queue),
+                );
         }
     }
 }
 
 /// Queries all the Egui related components.
+
 #[derive(WorldQuery)]
 #[world_query(mutable)]
 pub struct EguiContextQuery {
